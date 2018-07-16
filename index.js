@@ -1,6 +1,6 @@
-import path from 'path'
-import fs from 'fs'
-import { exec } from 'child_process'
+const path = require('path')
+const fs = require('fs')
+const exec = require('child_process').exec
 
 const getThis = (el, path, emptyVal) => {
     if (path && path.toString().split) {
@@ -47,17 +47,375 @@ const getThis = (el, path, emptyVal) => {
     return result
 }
 
-class TypeDock {
-    options = {
-        outputDirectory: path.resolve(__dirname, `docks`),
-        outputFilename: `docks.json`,
-        sourceDirectory: path.resolve(__dirname, `./`),
-        exclude: `node_modules`,
-        tsconfig: path.resolve(__dirname, `.tsconfig.json`)
+const getComponentName = (obj) => {
+    let name
+
+    if (obj.children) {
+        let length = obj.children.length
+        while (!name && length--) {
+            if (obj.children[length] && obj.children[length].name === `name` && obj.children[length].defaultValue) {
+                name = obj.children[length].defaultValue
+            }
+        }
     }
 
+    if (!name) {
+        name = obj.name
+    }
+
+    return name.replace(/'|"|`/g, '').trim()
+}
+
+const getDescription = (item) => {
+    let desc
+
+    const cycleTags = (tags) => {
+        if (tags) {
+            let tagLength = tags.length
+
+            while (!desc && tagLength--) {
+                if (tags[tagLength].tag === `desc` || tags[tagLength].tag === `description`) {
+                    desc = tags[tagLength].text
+                }
+            }
+        }
+    }
+
+    cycleTags(getThis(item, 'comment.tags'))
+
+    if (!desc) {
+        cycleTags(getThis(item, 'signatures.0.comment.tags'))
+    }
+
+    return desc ? desc.trim() : ``
+}
+
+const getReturn = (item, doc) => {
+    if (!item) {
+        return `void`
+    }
+
+    let returns = getThis(item, 'getSignature')
+
+    if (!returns) {
+        returns = getThis(item, 'signatures.0')
+    }
+
+    if (!returns) {
+        returns = item
+    }
+
+    if (returns) {
+
+        return getType(returns, doc)
+    }
+
+    return `void`
+}
+
+const getParameters = (item, doc) => {
+    if (!item) {
+        return
+    }
+
+    let parameters = getThis(item, 'signatures.0.parameters')
+
+    if (!parameters || !parameters.length) {
+        return
+    }
+
+    parameters = parameters.map(parameter => {
+        return {
+            name: parameter.name,
+            description: getThis(parameter, `comment.text`),
+            isOptional: parameter.flags.isOptional,
+            type: getType(parameter.type, doc)
+        }
+    })
+    return parameters
+}
+
+const joinValues = (item, doc) => {
+    let values = item.map(type => {
+        return getType(type, doc)
+    })
+
+    if (values.length === 1) {
+        values = values[0]
+    }
+
+    return values
+}
+
+const lookupReference = (id, doc) => {
+    let src
+    let results = {}
+    let childLength = doc.children.length
+
+    while (!src && childLength--) {
+        let element = doc.children[childLength]
+
+        if (element.id === id && (element.children || element.indexSignature)) {
+            src = element
+        }
+    }
+
+    if (!src) {
+        return ``
+    }
+
+    if (src.kindString === `Class`) {
+        return `${src.name} (Class)`
+    }
+
+    if (src.children) {
+        src.children.forEach(child => {
+            results[child.name] = getType(child.type, doc)
+        })
+
+        return results
+    }
+
+    if (src.indexSignature) {
+        let keyName = getThis(src.indexSignature, `parameters.0.name`)
+        let keyType = getThis(src.indexSignature, `parameters.0.type.name`)
+        let value = getThis(src.indexSignature, `type`)
+
+        if (value) {
+            let _value = getType(value, doc)
+
+            if (_value) {
+                value = _value
+            }
+        }
+
+        if (value && keyName && keyType) {
+            results = {}
+            results[`[${keyName}:${keyType}]`] = value
+            return results
+        }
+    }
+
+    return getType(src, doc)
+}
+
+const getType = (item, doc) => {
+    let result = {}
+
+    if (!item) {
+        return
+    }
+
+    if (item.id && item.type === `reference`) {
+        return lookupReference(item.id, doc)
+    }
+
+    if (item.type === `reference`) {
+        let val
+
+        if (item.types) {
+            val = joinValues(item.types, doc)
+        }
+
+        if (item.typeArguments) {
+            val = joinValues(item.typeArguments, doc)
+        }
+
+        if (val) {
+            if (item.name === `Array`) {
+                return [val]
+            }
+
+            return val
+        }
+
+        return item.name
+    }
+
+    if (item.type === `union`) {
+        result = joinValues(item.types, doc)
+
+        if (Array.isArray(result)) {
+            result = result.join(` | `)
+        }
+
+        return result
+    }
+
+    if (item.type && item.type.name) {
+        return getType(item.type, doc)
+    }
+
+    return item.name
+}
+
+const isDocumented = (item) => {
+    if (!item.description) {
+        return false
+    }
+
+    if (item.hasOwnProperty(`isDocumented`) && !item.isDocumented) {
+        return false
+    }
+
+    return true
+}
+
+const getChildren = (children, doc) => {
+    let results = {
+        methods: {},
+        computed: {},
+        properties: {},
+        attributeProperties: {}
+    }
+
+    if (children && children.length) {
+        children.forEach(item => {
+            let prop = null
+            let child = {
+                name: item.name,
+                kind: getThis(item, 'decorators.0.name', item.kindString),
+                description: getDescription(item),
+                required: getThis(item, 'flags.isOptional'),
+                exported: getThis(item, 'flags.isExported'),
+                source: item.sources[0]
+            }
+
+            switch (child.kind) {
+                case `Method`:
+                    let _isDocumented = true
+
+                    child.returns = getReturn(item, doc)
+                    child.arguments = getParameters(item, doc)
+
+                    if (child.arguments) {
+                        child.arguments.forEach((arg, argIndex) => {
+                            child.arguments[argIndex].isDocumented = isDocumented(arg)
+
+                            if (!child.arguments[argIndex].isDocumented) {
+                                _isDocumented = false
+                            }
+                        })
+                    }
+
+                    child.isDocumented = _isDocumented
+
+                    prop = `methods`
+                    break
+                case `Accessor`:
+                    child.returns = getReturn(item, doc)
+                    prop = `computed`
+                    break
+                case `Prop`:
+                    prop = `attributeProperties`
+                    child.default = item.defaultValue ? item.defaultValue.replace(/'|"|`/g, '').trim() : ''
+                    child.type = getType(item.type, doc)
+                    break
+                case `Property`:
+                    prop = `properties`
+                    child.default = item.defaultValue ? item.defaultValue.replace(/'|"|`/g, '').trim() : ''
+                    child.type = getType(item.type, doc)
+                    break
+            }
+
+            child.isDocumented = isDocumented(child)
+
+            if (prop) {
+                if (!results[prop]){
+                    results[prop] = {}
+                }
+
+                results[prop][child.name] = child
+            } else {
+                results[child.name] = child
+            }
+        })
+    }
+
+    if (!Object.keys(results.methods).length) {
+        delete results.methods
+    }
+
+    if (!Object.keys(results.properties).length) {
+        delete results.properties
+    }
+
+    if (!Object.keys(results.attributeProperties).length) {
+        delete results.attributeProperties
+    }
+
+    if (!Object.keys(results.computed).length) {
+        delete results.computed
+    }
+
+    return results
+}
+
+class TypeDock {
+
     constructor(options) {
-        this.options = Object.assign(this.options, options || {})
+        let defaultOptions = {
+            outputDirectory: path.resolve(__dirname, `docks`),
+            outputFilename: `docks.json`,
+            sourceDirectory: path.resolve(__dirname, `./`),
+            exclude: `node_modules`,
+            tsconfig: path.resolve(__dirname, `tsconfig.json`),
+            testDirectory: path.resolve(__dirname, `tests`)
+        }
+
+        this.options = Object.assign(defaultOptions, options || {})
+    }
+
+    parseDoc(doc) {
+        let results = {}
+
+        doc.children.forEach(child => {
+            let propertyToAddTo = child.kindString.toLowerCase()
+            let name = child.name
+            let description = getDescription(child)
+
+            if (getThis(child, 'decorators.0.name') === 'Component') {
+                propertyToAddTo = `components`
+                name = getComponentName(child)
+            }
+
+            if (!results[propertyToAddTo]){
+                results[propertyToAddTo] = {}
+            }
+
+            results[propertyToAddTo][name] = {
+                name: name,
+                kind: child.kindString,
+                children: getChildren(child.children, doc),
+                group: propertyToAddTo,
+                description
+            }
+
+            let _isDocumented = true
+
+            let documentableChildren = [
+                `properties`,
+                `methods`,
+                `attributeProperties`,
+                `computed`
+            ]
+
+            for (let p in results[propertyToAddTo][name].children) {
+                if (documentableChildren.indexOf(p) > -1 && results[propertyToAddTo][name].children[p]) {
+                    for (let c in results[propertyToAddTo][name].children[p]) {
+                        if (results[propertyToAddTo][name].children[p][c]) {
+                            if (!results[propertyToAddTo][name].children[p][c].isDocumented) {
+                                _isDocumented = false
+                            }
+                        }
+                    }
+                }
+            }
+
+            results[propertyToAddTo][name].isDocumented = _isDocumented
+        })
+
+        return results
     }
 
     generateTypedoc() {
@@ -68,14 +426,24 @@ class TypeDock {
                 fs.mkdirSync(this.options.outputDirectory)
             }
 
-            let command = `typedoc --json ${path.resolve(this.options.outputDirectory, this.options.outputFilename)} ${this.options.sourceDirectory} --exclude ${this.options.exclude} --tsconfig ${this.options.tsconfig} --excludeExternals --includeDeclarations --ignoreCompilerErrors --target ES5 --mode file`
+            let command = (`
+            typedoc 
+            --json ${path.resolve(this.options.outputDirectory, `_` + this.options.outputFilename)} 
+            ${this.options.sourceDirectory} 
+            --exclude ${this.options.exclude} 
+            --tsconfig ${this.options.tsconfig} 
+            --excludeExternals 
+            --includeDeclarations 
+            --ignoreCompilerErrors 
+            --target ES5 --mode file
+            `).replace(/(\r\n\t|\n|\r\t)/gm, "")
 
-            exec(command, (err) => {
+            return exec(command, (err) => {
                 if (err) {
                     return reject(err)
                 }
 
-                let output = fs.readFileSync(path.resolve(this.options.outputDirectory, this.options.outputFilename))
+                let output = fs.readFileSync(path.resolve(this.options.outputDirectory, `_` + this.options.outputFilename))
 
                 try {
                     output = JSON.parse(output)
@@ -92,13 +460,15 @@ class TypeDock {
         return new Promise((resolve, reject) => {
             return this.generateTypedoc()
                 .then(docs => {
-                    resolve(docs)
+                    let parsed = this.parseDoc(docs)
+                    fs.writeFileSync(path.resolve(this.options.outputDirectory, this.options.outputFilename), JSON.stringify(parsed))
+                    return resolve(parsed)
                 })
                 .catch(err => {
-                    reject(err)
+                    return reject(err)
                 })
         })
     }
 }
 
-export default TypeDock
+module.exports = TypeDock
