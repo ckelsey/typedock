@@ -461,6 +461,27 @@ class TypeDock {
             return this.generateTypedoc()
                 .then(docs => {
                     let parsed = this.parseDoc(docs)
+
+                    if (this.options.excludeType && this.options.excludeType.length){
+                        this.options.excludeType.forEach(type=>{
+                            if (parsed[type]){
+                                delete parsed[type]
+                            }
+                        })
+                    }
+
+                    if (this.options.includeType && this.options.includeType.length) {
+                        let types = {}
+
+                        this.options.includeType.forEach(type => {
+                            if (parsed[type]) {
+                                types[type] = parsed[type]
+                            }
+                        })
+
+                        parsed = types
+                    }
+
                     fs.writeFileSync(path.resolve(this.options.outputDirectory, this.options.outputFilename), JSON.stringify(parsed))
                     return resolve(parsed)
                 })
