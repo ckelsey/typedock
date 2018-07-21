@@ -462,18 +462,18 @@ class TypeDock {
                 .then(docs => {
                     let parsed = this.parseDoc(docs)
 
-                    if (this.options.excludeType && this.options.excludeType.length){
-                        this.options.excludeType.forEach(type=>{
+                    if (this.options.excludeTypes && this.options.excludeTypes.length){
+                        this.options.excludeTypes.forEach(type=>{
                             if (parsed[type]){
                                 delete parsed[type]
                             }
                         })
                     }
 
-                    if (this.options.includeType && this.options.includeType.length) {
+                    if (this.options.includeTypes && this.options.includeTypes.length) {
                         let types = {}
 
-                        this.options.includeType.forEach(type => {
+                        this.options.includeTypes.forEach(type => {
                             if (parsed[type]) {
                                 types[type] = parsed[type]
                             }
