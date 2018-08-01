@@ -443,8 +443,8 @@ class TypeDock {
                 fs.mkdirSync(this.options.outputDirectory)
             }
 
-            let command = `typedoc --json ${path.resolve(this.options.outputDirectory, `_` + this.options.outputFilename)}  --entryPoint ${this.options.entryPoint} --includeDeclarations --mode file --excludeExternals --module System --exclude ${this.options.exclude} --tsconfig ${this.options.tsconfig}`
-
+            let command = `typedoc --json ${path.resolve(this.options.outputDirectory, `_` + this.options.outputFilename)}  --entryPoint ${this.options.entryPoint} --includeDeclarations --mode file --excludeExternals --module System --exclude "${this.options.exclude}" --tsconfig ${this.options.tsconfig}`
+            console.log(command)
             return exec(command, (err) => {
                 if (err) {
                     return reject(err)
