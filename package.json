@@ -2,7 +2,7 @@
     "name": "typedock",
     "main": "index.js",
     "license": "MIT",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "dependencies": {
         "@commitlint/cli": "^6.1.3",
         "@types/node": "^9.4.7",
