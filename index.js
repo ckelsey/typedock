@@ -249,6 +249,14 @@ const getType = (item, doc) => {
     return item.name
 }
 
+const getKind = (item) => {
+    let kind = getThis(item, 'decorators.0.name', item.kindString)
+
+    if (getThis(item, 'decorators.0.type.name') === `Input`){
+        kind = item.type.name
+    }
+}
+
 const isDocumented = (item) => {
     if (!item.description) {
         return false
@@ -264,7 +272,7 @@ const isDocumented = (item) => {
 const getChildren = (children, doc) => {
     let results = {
         methods: {},
-        computed: {},
+        getters: {},
         properties: {},
         attributeProperties: {}
     }
@@ -304,8 +312,9 @@ const getChildren = (children, doc) => {
                     break
                 case `Accessor`:
                     child.returns = getReturn(item, doc)
-                    prop = `computed`
+                    prop = `getters`
                     break
+                case `Input`:
                 case `Prop`:
                     prop = `attributeProperties`
                     child.default = item.defaultValue ? item.defaultValue.replace(/'|"|`/g, '').trim() : ''
@@ -321,7 +330,7 @@ const getChildren = (children, doc) => {
             child.isDocumented = isDocumented(child)
 
             if (prop) {
-                if (!results[prop]){
+                if (!results[prop]) {
                     results[prop] = {}
                 }
 
@@ -344,8 +353,8 @@ const getChildren = (children, doc) => {
         delete results.attributeProperties
     }
 
-    if (!Object.keys(results.computed).length) {
-        delete results.computed
+    if (!Object.keys(results.getters).length) {
+        delete results.getters
     }
 
     return results
@@ -379,14 +388,18 @@ class TypeDock {
                 name = getComponentName(child)
             }
 
-            if (!results[propertyToAddTo]){
+            if (getThis(child, 'decorators.0.name') === 'NgModule') {
+                propertyToAddTo = `modules`
+            }
+
+            if (!results[propertyToAddTo]) {
                 results[propertyToAddTo] = {}
             }
 
             results[propertyToAddTo][name] = {
                 name: name,
                 kind: child.kindString,
-                children: getChildren(child.children, doc),
+                children: getChildren(child.children, doc, child),
                 group: propertyToAddTo,
                 description
             }
@@ -397,8 +410,12 @@ class TypeDock {
                 `properties`,
                 `methods`,
                 `attributeProperties`,
-                `computed`
+                `getters`
             ]
+
+            if (getThis(child, 'decorators.0.name') === 'NgModule') {
+                results[propertyToAddTo][name].body = `<pre>${getThis(child, `decorators.0.arguments.obj`)}</pre>`
+            }
 
             for (let p in results[propertyToAddTo][name].children) {
                 if (documentableChildren.indexOf(p) > -1 && results[propertyToAddTo][name].children[p]) {
@@ -462,9 +479,9 @@ class TypeDock {
                 .then(docs => {
                     let parsed = this.parseDoc(docs)
 
-                    if (this.options.excludeTypes && this.options.excludeTypes.length){
-                        this.options.excludeTypes.forEach(type=>{
-                            if (parsed[type]){
+                    if (this.options.excludeTypes && this.options.excludeTypes.length) {
+                        this.options.excludeTypes.forEach(type => {
+                            if (parsed[type]) {
                                 delete parsed[type]
                             }
                         })
