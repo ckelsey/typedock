@@ -249,14 +249,6 @@ const getType = (item, doc) => {
     return item.name
 }
 
-const getKind = (item) => {
-    let kind = getThis(item, 'decorators.0.name', item.kindString)
-
-    if (getThis(item, 'decorators.0.type.name') === `Input`){
-        kind = item.type.name
-    }
-}
-
 const isDocumented = (item) => {
     if (!item.description) {
         return false
