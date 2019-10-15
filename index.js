@@ -411,15 +411,18 @@ class TypeDock {
             }
 
             for (let p in results[propertyToAddTo][name].children) {
-                if (documentableChildren.indexOf(p) > -1 && results[propertyToAddTo][name].children[p]) {
-                    for (let c in results[propertyToAddTo][name].children[p]) {
-                        if (results[propertyToAddTo][name].children[p][c]) {
-                            if (!results[propertyToAddTo][name].children[p][c].isDocumented) {
-                                _isDocumented = false
+                if (documentableChildren.indexOf(p) > -1) {
+                    if (results[propertyToAddTo][name].children[p]) {
+                        for (let c in results[propertyToAddTo][name].children[p]) {
+                            if (results[propertyToAddTo][name].children[p][c]) {
+                                if (!results[propertyToAddTo][name].children[p][c].isDocumented) {
+                                    _isDocumented = false
+                                }
                             }
                         }
                     }
                 }
+                console.log(results[propertyToAddTo][name].children[p])
             }
 
             results[propertyToAddTo][name].isDocumented = _isDocumented
@@ -437,7 +440,7 @@ class TypeDock {
             }
 
             let command = `typedoc --json ${path.resolve(this.options.outputDirectory, `_` + this.options.outputFilename)}  --entryPoint ${this.options.entryPoint} --includeDeclarations --mode file --excludeExternals --module System --exclude ${this.options.exclude} --ignoreCompilerErrors`
-            console.log(command)
+
             return exec(command, (err) => {
                 if (err) {
                     return reject(err)
